@@ -9,13 +9,13 @@
 python .\cobra.py -h
 
 usage: cobra [-h] [-t <target>] [-f <format>] [-o <output>] [-r <rule_id>]
-             [-s <secret_name>] [-d]
+             [-b BLACK_PATH] [-d] [-u]
 
   ____      _                  __        __
  / ___|___ | |__  _ __ __ _    \ \      / /
 | |   / _ \| '_ \| '__/ _` |    \ \ /\ / /
 | |__| (_) | |_) | | | (_| | --- \ V  V /
- \____\___/|_.__/|_|  \__,_|      \_/\_/  v0.8.3
+ \____\___/|_.__/|_|  \__,_|      \_/\_/  v1.9.1
 
 GitHub: https://github.com/LoRexxar/Cobra-W
 
@@ -36,7 +36,16 @@ Scan:
                         specifies rules e.g: 1000, 1001
   -s <secret_name>, --secret <secret_name>
                         secret repair function e.g: wordpress
+  -i <sid>, --sid <sid>
+                        sid for cobra-wa
+  -l <log>, --log <log>
+                        log name for cobra-wa
+  -lan LANGUAGE, --language LANGUAGE
+                        set target language
+  -b BLACK_PATH, --blackpath BLACK_PATH
+                        black path list
   -d, --debug           open debug mode
+  -u, --unconfirm       show unconfirmed vuls
 
 Usage:
   python cobra.py -t tests/vulnerabilities
@@ -44,6 +53,8 @@ Usage:
   python cobra.py -t tests/vulnerabilities -s wordpress
   python cobra.py -t tests/vulnerabilities -f json -o /tmp/report.json
   python cobra.py -t tests/vulnerabilities --debug
+  python cobra.py -t tests/vulnerabilities -d -u
+  python cobra.py -t tests/vulnerabilities --lan php -b vendor --debug
 ```
 
 ## 核心代码

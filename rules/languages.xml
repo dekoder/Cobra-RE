@@ -9,6 +9,10 @@
         <extension value=".php3"/>
         <extension value=".php4"/>
         <extension value=".php5"/>
+        <extension value=".pht"/>
+        <extension value=".phs"/>
+        <extension value=".phtml"/>
+        <extension value=".inc"/>
     </language>
     <language name="Java" chiefly="True">
         <extension value=".java"/>
@@ -18,6 +22,12 @@
     </language>
     <language name="Solidity" chiefly="True">
         <extension value=".sol"/>
+    </language>
+    <language name="Javascript" chiefly="True">
+        <extension value=".js"/>
+    </language>
+    <language name="ChromeExt" chiefly="True">
+        <extension value=".crx"/>
     </language>
     <language name="JSP">
         <extension value=".jsp"/>
@@ -70,10 +80,7 @@
     <language name="Bat">
         <extension value=".bat"/>
     </language>
-    <language name="JavaScript">
-        <extension value=".js"/>
-    </language>
-    <language name="HTML">
+    <language name="HTML" chiefly="True">
         <extension value=".html"/>
         <extension value=".htm"/>
         <extension value=".phtml"/>

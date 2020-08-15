@@ -22,10 +22,7 @@ from prettytable import PrettyTable
 from .config import running_path, export_path, default_result_path
 from .log import logger
 
-try:
-    import cgi as html
-except ImportError:
-    import html
+import html
 
 try:
     # Python 2
@@ -92,7 +89,7 @@ def dict_to_csv(vul_list, filename):
     if not os.path.exists(filename):
         with open(filename, 'w+', encoding='utf-8', errors='ignore') as f:
             # 防止在 Excel 中中文显示乱码
-            f.write(BOM_UTF8)
+            # f.write(BOM_UTF8)
             csv_writer = csv.DictWriter(f, header)
             csv_writer.writeheader()
             csv_writer.writerows(vul_list)

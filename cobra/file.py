@@ -16,7 +16,11 @@ import re
 import os
 import time
 import codecs
+import zipfile
+import traceback
 from .log import logger
+from .pretreatment import ast_object
+from .const import ext_dict, default_black_list
 
 try:
     from urllib import quote
@@ -24,19 +28,28 @@ except ImportError:
     from urllib.parse import quote
 
 
-ext_list = ['.php', '.php3', '.php4', '.php5', '.php7', '.pht', '.phs', '.phtml', '.sol']
+ext_list = []
+for e in ext_dict:
+    ext_list += ext_dict[e]
 
 
-def file_list_parse(filelist):
+def file_list_parse(filelist, language=None):
     result = []
+    self_ext_list = ext_list
 
     if not filelist:
         return result
 
-    for ext in ext_list:
-        for file in filelist:
-            if file[0] == ext:
-                result.append(file[1]['list'])
+    if language is not None and language in ext_dict:
+        self_ext_list = ext_dict[language]
+
+    for file in filelist:
+        if file[0] in self_ext_list:
+            # if file[0] in ['.crx'] and language == "javascript":
+            #     for filepath in file[1]['list']:
+            #         result.extend(ast_object.get_child_files(filepath))
+            # else:
+            result.extend(file[1]['list'])
 
     return result
 
@@ -87,13 +100,23 @@ def file_grep(file_path, rule_reg):
         return result
 
 
+def check_filepath(target, filepath):
+    os.chdir(os.path.dirname(os.path.dirname(__file__)))
+
+    if os.path.isfile(filepath):
+        return filepath
+    elif os.path.isfile(os.path.join(target, filepath)):
+        return os.path.join(target, filepath)
+    elif os.path.isfile(target):
+        return target
+    else:
+        return False
+
+
 class FileParseAll:
-    def __init__(self, filelist, target):
+    def __init__(self, filelist, target, language=None):
         self.filelist = filelist
-        if file_list_parse(filelist) is not []:
-            self.t_filelist = file_list_parse(filelist)[0]
-        else:
-            self.t_filelist = []
+        self.t_filelist = file_list_parse(filelist, language)
         self.target = target
 
     def grep(self, reg):
@@ -105,13 +128,68 @@ class FileParseAll:
         result = []
 
         for ffile in self.t_filelist:
-            file = codecs.open(self.target+ffile, "r", encoding='utf-8', errors='ignore')
-            line_number = 0
+            filepath = check_filepath(self.target, ffile)
+
+            if not filepath:
+                continue
+
+            file = codecs.open(filepath, "r", encoding='utf-8', errors='ignore')
+            line_number = 1
+            i = 0
+            content = ""
+
+            # 逐行匹配问题比较大，先测试为每5行匹配一次
             for line in file:
+                i += 1
                 line_number += 1
+                content += line
+
+                if i < 5:
+                    continue
+
+                i = 0
                 # print line, line_number
-                if re.search(reg, line, re.I):
-                    result.append((self.target + ffile, str(line_number), line))
+                if re.search(reg, content, re.I):
+
+                    # 尝试通过以目标作为标志分割，来判断行数
+                    # 目标以前的回车数计算
+                    p = re.compile(reg)
+                    matchs = p.finditer(content)
+
+                    for m in matchs:
+
+                        data = m.group(0)
+
+                        split_data = content.split(data)[0]
+                        # enddata = content.split(data)[1]
+
+                        LRnumber = " ".join(split_data).count('\n')
+
+                        match_numer = line_number - 5 + LRnumber
+
+                        result.append((filepath, str(match_numer), data))
+
+                content = ""
+
+            # 如果退出循环的时候没有清零，则还要检查一次
+            if i > 0:
+                if re.search(reg, content, re.I):
+                    # 尝试通过以目标作为标志分割，来判断行数
+                    # 目标以前的回车数计算
+                    p = re.compile(reg)
+                    matchs = p.finditer(content)
+
+                    for m in matchs:
+                        data = m.group(0)
+
+                        split_data = content.split(data)[0]
+                        # enddata = content.split(data)[1]
+
+                        LRnumber = " ".join(split_data).count('\n')
+
+                        match_numer = line_number - i + LRnumber
+
+                        result.append((filepath, str(match_numer), data))
 
         return result
 
@@ -125,7 +203,12 @@ class FileParseAll:
         line_number = 0
 
         for ffile in self.t_filelist:
-            file = codecs.open(self.target+ffile, "r", encoding='utf-8', errors='ignore')
+            filepath = check_filepath(self.target, ffile)
+
+            if not filepath:
+                continue
+
+            file = codecs.open(filepath, "r", encoding='utf-8', errors='ignore')
             content = file.read()
             file.close()
 
@@ -134,7 +217,7 @@ class FileParseAll:
             if r_con_obj:
                 start_pos = r_con_obj.regs[0][0]
                 line_number = len(content[:start_pos].split('\n'))
-                result.append((self.target + ffile, str(line_number), r_con_obj.group(0)))
+                result.append((filepath, str(line_number), r_con_obj.group(0)))
 
         return result
     
@@ -165,7 +248,12 @@ class FileParseAll:
         result = []
 
         for ffile in self.t_filelist:
-            file = codecs.open(self.target+ffile, "r", encoding='utf-8', errors='ignore')
+            filepath = check_filepath(self.target, ffile)
+
+            if not filepath:
+                continue
+
+            file = codecs.open(filepath, "r", encoding='utf-8', errors='ignore')
             content = file.read()
             file.close()
             
@@ -227,7 +315,7 @@ class FileParseAll:
                 if re_flag:
                     # 例如CVI2100中，没有match，只要不含unmatch即为漏洞的，没有行数
                     if matchs_tmp == []:
-                        result.append(tuple([self.target+ffile, str(line_number), 'name:<'+n+'>']))
+                        result.append(tuple([filepath, str(line_number), 'name:<'+n+'>']))
                         logger.debug('[DEBUG] [MATCH_REGEX_RETURN_REGEX] success match:{0} in line {1}'.format(n, str(line_number)))
                         continue
 
@@ -237,17 +325,111 @@ class FileParseAll:
 
                         if result_list_tmp is not None and result_list_tmp != []:
                             for result_tmp in result_list_tmp:
-                                result.append(tuple([self.target+ffile, str(line_number), 'name:<'+result_tmp[0]+'>, point:<'+result_tmp[1]+'>']))
+                                result.append(tuple([filepath, str(line_number), 'name:<'+result_tmp[0]+'>, point:<'+result_tmp[1]+'>']))
                                 logger.debug('[DEBUG] [MATCH_REGEX_RETURN_REGEX] success match:{0} in line {1}'.format(n, str(line_number)))
                         else:
                             re_flag = False
 
         return result
 
+    def special_crx_keyword_match(self, keyword, match, unmatch):
+        """
+        针对crx的特殊匹配
+        :param keyword: 
+        :param match: 
+        :param unmatch: 
+        :return: 
+        """
+        result = []
+
+        for ffile in self.t_filelist:
+            ffile_path = check_filepath(self.target, ffile)
+
+            if not ffile_path:
+                continue
+
+            ffile_object = ast_object.get_object(ffile_path)
+
+            if not ffile_object or 'manifest' not in ffile_object:
+                continue
+
+            manifest = ffile_object['manifest']
+            target_files_path = ffile_object['target_files_path']
+            keywords = keyword.split('.')
+            value_list = self.keyword_object_parse(keywords, manifest)
+
+            # 逐个检查匹配
+            for value in value_list:
+                flag = False
+
+                # if not value:
+                #     result.append((ffile_path, str(0), "{} = {}".format(keyword, "None")))
+                #     continue
+
+                for m in match:
+
+                    if not value:
+                        if not m:
+                            # check None
+                            result.append((ffile_path, str(0), "{} = {}".format(keyword, "None")))
+                        continue
+
+                    r_con_obj = re.search(m, value, re.I)
+
+                    if r_con_obj:
+                        flag = True
+                        break
+
+                for um in unmatch:
+                    r_con_obj2 = re.search(um, value, re.I)
+
+                    if r_con_obj2:
+                        flag = False
+                        break
+
+                if flag:
+                    result.append((ffile_path, str(0), "{} = {}".format(keyword, r_con_obj.group(0))))
+
+        return result
+
+    def keyword_object_parse(self, keywords, object, index=0):
+        tmp_manifest = object
+        value_list = []
+
+        for key in keywords[index:]:
+
+            if index+1 == len(keywords):
+
+                if key not in tmp_manifest:
+                    value_list.extend([None])
+                    break
+
+                value_list.extend([str(tmp_manifest[key])])
+                break
+
+            if key != "*":
+                if key in tmp_manifest:
+                    tmp_manifest = tmp_manifest[key]
+                    index += 1
+                else:
+                    value_list.extend([None])
+                    logger.warning("[REGEX][FILE] Special keyword {} Not found in object {}".format(key, object))
+                    break
+            else:
+                for i in tmp_manifest:
+                    value_list.extend(self.keyword_object_parse(keywords=keywords, object=i, index=index+1))
+
+                break
+
+        return value_list
+
 
 class Directory(object):
-    def __init__(self, absolute_path):
+    def __init__(self, absolute_path, black_path_list=[]):
         self.absolute_path = absolute_path
+        self.black_path_list = default_black_list
+
+        self.black_path_list.extend(black_path_list)
 
     file_sum = 0
     type_nums = {}
@@ -259,7 +441,7 @@ class Directory(object):
     """
 
     def collect_files(self):
-        t1 = time.clock()
+        t1 = time.time()
         self.files(self.absolute_path)
         self.result['no_extension'] = {'count': 0, 'list': []}
         for extension, values in self.type_nums.items():
@@ -280,7 +462,7 @@ class Directory(object):
                     self.result['no_extension']['list'].append(f)
         if self.result['no_extension']['count'] == 0:
             del self.result['no_extension']
-        t2 = time.clock()
+        t2 = time.time()
         # reverse list count
         self.result = sorted(self.result.items(), key=lambda t: t[0], reverse=False)
         return self.result, self.file_sum, t2 - t1
@@ -296,6 +478,17 @@ class Directory(object):
                 for filename in os.listdir(absolute_path):
                     directory = os.path.join(absolute_path, filename)
 
+                    flag = 0
+
+                    # check black path list
+                    if self.black_path_list:
+                        for black_path in self.black_path_list:
+                            if black_path in filename:
+                                flag = 1
+
+                    if flag:
+                        continue
+
                     # Directory Structure
                     logger.debug('[PICKUP] [FILES] ' + '|  ' * (level - 1) + '|--' + filename)
                     if os.path.isdir(directory):
@@ -303,6 +496,7 @@ class Directory(object):
                     if os.path.isfile(directory):
                         self.file_info(directory, filename)
         except OSError as e:
+            logger.error("[PICKUP] {}".format(traceback.format_exc()))
             logger.critical('[PICKUP] {msg}'.format(msg=e))
             exit()
 
@@ -348,3 +542,4 @@ class File(object):
         else:
             content = False
         return content
+

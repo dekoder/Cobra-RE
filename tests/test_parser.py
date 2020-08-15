@@ -12,9 +12,14 @@
     :license:   MIT, see LICENSE for more details.
     :copyright: Copyright (c) 2017 Feei. All rights reserved
 """
-from cobra.parser import scan_parser
-from cobra.parser import anlysis_params
 from cobra.config import project_directory
+from cobra.core_engine.php.parser import anlysis_params
+from cobra.core_engine.php.parser import scan_parser
+from cobra.pretreatment import ast_object
+
+files = [('.php', {'list': ["v_parser.php", "v.php"]})]
+ast_object.init_pre(project_directory + '/tests/vulnerabilities/', files)
+ast_object.pre_ast_all(['php'])
 
 
 target_projects = project_directory + '/tests/vulnerabilities/v_parser.php'
@@ -33,8 +38,8 @@ lineno2 = 10
 
 
 def test_scan_parser():
-    assert scan_parser(code_contents, sensitive_func, lineno, target_projects)
+    assert scan_parser(sensitive_func, lineno, target_projects)
 
 
 def test_anlysis_params():
-    assert anlysis_params(param, code_contents2, target_projects2, lineno2)
+    assert anlysis_params(param, target_projects2, lineno2)

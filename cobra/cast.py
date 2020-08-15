@@ -14,19 +14,23 @@
 import os
 import re
 import traceback
-import codecs
-from .log import logger
-from .rule import block
+
+from cobra.core_engine.php.parser import anlysis_params as php_anlysis_params
+from cobra.core_engine.javascript.parser import analysis_params as js_analysis_params
+
 from .file import File
 from .file import FileParseAll
-from .parser import is_controllable
-from .parser import anlysis_params
+from .log import logger
+from .rule import block
 
 
 class CAST(object):
-    languages = ['php', 'java', 'sol']
+    languages = {'php': "php",
+                 'java': "java",
+                 'sol': "sol",
+                 'js': "javascript"}
 
-    def __init__(self, rule, target_directory, file_path, line, code, files=None, rule_class=None, repair_functions=[]):
+    def __init__(self, rule, target_directory, file_path, line, code, files=None, rule_class=None, repair_functions=[], controlled_params=[]):
         self.target_directory = target_directory
         self.data = []
         self.rule = rule
@@ -39,11 +43,14 @@ class CAST(object):
         self.language = None
         self.sr = rule_class
         self.repair_functions = repair_functions
+        self.controlled_list = controlled_params
+
         for language in self.languages:
             if self.file_path[-len(language):].lower() == language:
-                self.language = language
+                self.language = self.languages[language]
 
-        os.chdir(self.target_directory)
+        if os.path.isdir(self.target_directory):
+            os.chdir(self.target_directory)
         # Parse rule
         self.regex = {
             'java': {
@@ -68,6 +75,13 @@ class CAST(object):
                 #    $url = $_SERVER
                 #    $url = $testsdf;
                 'assign_out_input': r'({0}\s?=\s?.*\$_[GET|POST|REQUEST|SERVER|COOKIE]+(?:\[))'
+            },
+            'javascript': {
+                'functions': r'(?:function\s+)(\w+)\s*\(',
+                'string': r"(?:['\"])(.*)(?:[\"'])",
+                'assign_string': r"({0}\s?=\s?[\"'](.*)(?:['\"]))",
+                'annotation': r"(#|\\\*|\/\/|\*)+",
+
             }
         }
         logger.debug("[AST] [LANGUAGE] {language}".format(language=self.language))
@@ -199,7 +213,7 @@ class CAST(object):
 
         if params is None:
             logger.debug("[AST] Not matching variables...")
-            return False, self.data
+            return False, -1, self.data, []
 
         for param_name in params:
             try:
@@ -220,65 +234,85 @@ class CAST(object):
                             variables=','.join(regex_get_variable_result)))
                     else:
                         logger.debug("[AST] String have variables: `No`")
-                        return False, self.data
+                        return False, -1, self.data, []
                 logger.debug("[AST] String have variables: `Yes`")
 
                 # variable
-                if param_name[:1] == '$':
+                if self.language == 'php':
                     logger.debug("[AST] Is variable: `Yes`")
-
-                    # Get assign code block
-                    # param_block_code = self.block_code(0)
-                    fi = codecs.open(self.file_path, "r", encoding='utf-8', errors='ignore')
-                    param_content = fi.read()
-
-                    if param_content is False:
-                        logger.debug("[AST] Can't get assign code block")
-                        return True, self.data
-
                     logger.debug("[Deep AST] Start AST for param {param_name}".format(param_name=param_name))
 
-                    _is_co, _cp, expr_lineno = anlysis_params(param_name, param_content, self.file_path, self.line, self.sr.vul_function, self.repair_functions)
+                    _is_co, _cp, expr_lineno, chain = php_anlysis_params(param_name, self.file_path, self.line, self.sr.vul_function, self.repair_functions, self.controlled_list, isexternal=True)
 
                     if _is_co == 1:
                         logger.debug("[AST] Is assign string: `Yes`")
-                        return True, _cp
+                        return True, _is_co, _cp, chain
                     elif _is_co == 3:
-                        logger.info("[AST] can't find this param, something error..")
-                        continue
+                        pass
+                        # logger.info("[AST] can't find this param, Unconfirmed vulnerable..")
+                        # return True, _is_co, _cp, chain
                     elif _is_co == 4:
                         logger.info("[AST] New vul function {}()".format(_cp[0].name))
-                        return False, tuple([_is_co, _cp])
+                        return False, _is_co, tuple([_is_co, _cp]), chain
+                    else:
+                        continue
+
+                # else:
+                elif self.language == 'java':
+                    # Java variable didn't have `$`
+                    param_block_code = self.block_code(0)
+                    if param_block_code is False:
+                        logger.debug("Can't get block code")
+                        return True, self.data
+                    logger.debug("[AST] Block code: ```{language}\r\n{code}```".format(language=self.language,
+                                                                                       code=param_block_code))
+                    regex_assign_string = self.regex[self.language]['assign_string'].format(re.escape(param_name))
+                    string = re.findall(regex_assign_string, param_block_code)
+                    if len(string) >= 1 and string[0] != '':
+                        logger.debug("[AST] Is assign string: `Yes`")
+                        continue
+                        # return False, self.data
+                    logger.debug("[AST] Is assign string: `No`")
+
+                    # Is assign out data
+                    regex_get_param = r'String\s{0}\s=\s\w+\.getParameter(.*)'.format(re.escape(param_name))
+                    get_param = re.findall(regex_get_param, param_block_code)
+                    if len(get_param) >= 1 and get_param[0] != '':
+                        logger.debug("[AST] Is assign out data: `Yes`")
+                        continue
+                        # False, self.data
+                    logger.debug("[AST] Is assign out data: `No`")
+                    return True, -1, self.data, []
+
+                elif self.language == "javascript":
+
+                    logger.debug("[AST] Is variable: `Yes`")
+                    logger.debug("[Deep AST] Start AST for param {param_name}".format(param_name=param_name))
+
+                    _is_co, _cp, expr_lineno, chain = js_analysis_params(param_name, [],
+                                                                         self.sr.vul_function, self.line, self.file_path,
+                                                                         self.repair_functions, self.controlled_list, isexternal=True)
+
+                    if _is_co == 1:
+                        logger.debug("[AST] Is assign string: `Yes`")
+                        return True, _is_co, _cp, chain
+                    elif _is_co == 3:
+                        pass
+                        # logger.info("[AST] can't find this param, Unconfirmed vulnerable..")
+                        # return True, _is_co, _cp, chain
+                    elif _is_co == 4:
+                        if hasattr(_cp[0], "name"):
+                            logger.info("[AST] New vul function {}()".format(_cp[0].name))
+                        else:
+                            logger.info("[AST] New vul function {}()".format(_cp[0]))
+
+                        return False, _is_co, tuple([_is_co, _cp]), chain
+
                     else:
                         continue
 
                 else:
-                    if self.language == 'java':
-                        # Java variable didn't have `$`
-                        param_block_code = self.block_code(0)
-                        if param_block_code is False:
-                            logger.debug("Can't get block code")
-                            return True, self.data
-                        logger.debug("[AST] Block code: ```{language}\r\n{code}```".format(language=self.language,
-                                                                                           code=param_block_code))
-                        regex_assign_string = self.regex[self.language]['assign_string'].format(re.escape(param_name))
-                        string = re.findall(regex_assign_string, param_block_code)
-                        if len(string) >= 1 and string[0] != '':
-                            logger.debug("[AST] Is assign string: `Yes`")
-                            continue
-                            # return False, self.data
-                        logger.debug("[AST] Is assign string: `No`")
-
-                        # Is assign out data
-                        regex_get_param = r'String\s{0}\s=\s\w+\.getParameter(.*)'.format(re.escape(param_name))
-                        get_param = re.findall(regex_get_param, param_block_code)
-                        if len(get_param) >= 1 and get_param[0] != '':
-                            logger.debug("[AST] Is assign out data: `Yes`")
-                            continue
-                            # False, self.data
-                        logger.debug("[AST] Is assign out data: `No`")
-                        return True, self.data
-                    logger.debug("[AST] Not Java/PHP, can't parse ({l})".format(l=self.language))
+                    logger.debug("[AST] Not Java/PHP/Javascript, can't parse ({l})".format(l=self.language))
                     continue
                     # return False, self.data
 
@@ -288,10 +322,14 @@ class CAST(object):
             except:
                 logger.warning("[AST] Can't get `param`, check built-in rule")
                 traceback.print_exc()
-                return False, self.data
+                return False, -1, self.data, []
+
+        if _is_co == 3:
+            logger.info("[AST] can't find this param, Unconfirmed vulnerable..")
+            return True, _is_co, _cp, chain
 
         # if no variable can modify
-        return False, self.data
+        return False, self.data, None, None
 
     def match(self, rule, block_id):
         """

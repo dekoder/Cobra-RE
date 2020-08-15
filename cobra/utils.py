@@ -35,7 +35,7 @@ PY2 = sys.version_info[0] == 2
 
 
 class ParseArgs(object):
-    def __init__(self, target, formatter, output, special_rules=None, a_sid=None):
+    def __init__(self, target, formatter, output, special_rules=None, language=None, black_path=None, a_sid=None):
         self.target = target
         self.formatter = formatter
         self.output = output
@@ -68,6 +68,32 @@ class ParseArgs(object):
                         '[PARSE-ARGS] Exception special rule name(e.g: CVI-110001): {sr}'.format(sr=special_rules))
         else:
             self.special_rules = None
+
+        # check black pth list
+        if black_path is not None and black_path is not "":
+            self.black_path_list = []
+
+            if ',' in black_path:
+                self.black_path_list = [x.strip() for x in black_path.split(',') if x != ""]
+                logger.info("[INIT][PARSE_ARGS] Black Path list is {}".format(self.black_path_list))
+            else:
+                self.black_path_list = []
+                logger.warning("[INIT][PARSE_ARGS] Black Path parse error.")
+
+        else:
+            self.black_path_list = []
+
+        # check and deal language
+        if language is not None and language is not "":
+            self.language = []
+
+            if ',' in language:
+                self.language = [x.strip() for x in language.split(',') if x != ""]
+                logger.info("[INIT][PARSE_ARGS] Language is {}".format(self.language))
+            else:
+                self.language = [language.strip()]
+                logger.info("[INIT][PARSE_ARGS] Only one Language {}.".format(self.language))
+
         self.sid = a_sid
 
     @staticmethod
@@ -133,6 +159,7 @@ class ParseArgs(object):
             target_directory = self.target
         elif target_mode == TARGET_MODE_FILE:
             target_directory = self.target
+            return target_directory
         else:
             logger.critical('[PARSE-ARGS] exception target mode ({mode})'.format(mode=target_mode))
             exit()
@@ -393,27 +420,27 @@ class Tool:
             self.find = 'find'
 
 
-        if 'darwin' == sys.platform:
-            ggrep = ''
-            gfind = ''
-            for root, dir_names, file_names in os.walk('/usr/local/Cellar/grep'):
-                for filename in file_names:
-                    if 'ggrep' == filename or 'grep' == filename:
-                        ggrep = os.path.join(root, filename)
-            for root, dir_names, file_names in os.walk('/usr/local/Cellar/findutils'):
-                for filename in file_names:
-                    if 'gfind' == filename:
-                        gfind = os.path.join(root, filename)
-            if ggrep == '':
-                logger.critical("brew install ggrep pleases!")
-                sys.exit(0)
-            else:
-                self.grep = ggrep
-            if gfind == '':
-                logger.critical("brew install findutils pleases!")
-                sys.exit(0)
-            else:
-                self.find = gfind
+        # if 'darwin' == sys.platform:
+        #     ggrep = ''
+        #     gfind = ''
+        #     for root, dir_names, file_names in os.walk('/usr/local/Cellar/grep'):
+        #         for filename in file_names:
+        #             if 'ggrep' == filename or 'grep' == filename:
+        #                 ggrep = os.path.join(root, filename)
+        #     for root, dir_names, file_names in os.walk('/usr/local/Cellar/findutils'):
+        #         for filename in file_names:
+        #             if 'gfind' == filename:
+        #                 gfind = os.path.join(root, filename)
+        #     if ggrep == '':
+        #         logger.critical("brew install ggrep pleases!")
+        #         sys.exit(0)
+        #     else:
+        #         self.grep = ggrep
+        #     if gfind == '':
+        #         logger.critical("brew install findutils pleases!")
+        #         sys.exit(0)
+        #     else:
+        #         self.find = gfind
 
 
 def secure_filename(filename):
@@ -532,3 +559,155 @@ def secure_filename(filename):
 #         if "Unauthorized" in warn_msg:
 #             warn_msg += ". Please update to the latest revision"
 #         logger.warning(warn_msg)
+
+def pretty_code_js(code):
+    """
+    美化代码使代码可读
+    :param code:
+    :return:
+    """
+    lines = code.split('\n')
+
+    indent = 0
+    formatted = []
+
+    oldchar = '\0'
+    is_comment = False
+    is_function = False
+    is_array = False
+    is_tuple = False
+    is_dict = False
+
+    for line in lines:
+        newline = []
+
+        is_string = False
+        is_regex = False
+
+        for char in line:
+
+            nowoldchar = oldchar
+            oldchar = char
+
+            # 处理大括号
+            if nowoldchar == '{' and char == '}' and len(newline):
+                newline.pop(-1)
+                newline.pop(-1)
+                newline.append(char)
+                is_dict = False
+                continue
+
+            # 多行注释
+            if char == '*' and nowoldchar == '/':
+                if len(newline):
+                    newline.pop(-1)
+                is_comment = True
+                break
+
+            if is_comment and char == '/' and nowoldchar == '*':
+                is_comment = False
+                continue
+
+            if is_comment:
+                continue
+
+            newline.append(char)
+
+            # 一个特殊问题，正则表达式
+            if not is_regex and not is_string and nowoldchar == '(' and char == '/':
+                is_regex = True
+                continue
+
+            if is_regex and char == '/' and nowoldchar != '\\':
+                is_regex = False
+                continue
+
+            if is_regex:
+                continue
+
+            # 处理字符串
+            if not is_string and char == '`':
+                is_string = '`'
+                continue
+
+            if is_string == '`' and char == '`' and nowoldchar != '\\':
+                is_string = False
+                continue
+
+            if not is_string and char == '"':
+                is_string = '"'
+                continue
+
+            if is_string == '"' and char == '"' and nowoldchar != '\\':
+                is_string = False
+                continue
+
+            if not is_string and char == "'":
+                is_string = "'"
+                continue
+
+            if is_string == "'" and char == "'" and nowoldchar != '\\':
+                is_string = False
+                continue
+
+            if is_string:
+                continue
+
+            # 处理注释
+            if char == '/' and nowoldchar == '/':
+                # is_comment = True
+                newline.append('\n')
+                break
+
+            if char == '!' and nowoldchar == '<':
+                # is_comment = True
+                newline.append('\n')
+                break
+
+            # 处理特殊对象
+            if char == "[":
+                is_array = True
+                continue
+
+            if is_array and char == ']':
+                is_array = False
+                continue
+
+            if char == "(":
+                is_tuple = True
+                continue
+
+            if is_tuple and char == ')':
+                is_tuple = False
+                continue
+
+            if (is_dict or is_array) and not is_tuple and char == ',':
+                newline.append("\n")
+                newline.append("\t" * indent)
+
+            if char == ';':
+                newline.append("\n")
+                newline.append("\t" * indent)
+
+            if char == '{' and nowoldchar == 'n':
+                indent += 1
+                newline.append("\n")
+                newline.append("\t" * indent)
+                is_function = True
+
+            if char == '{' and nowoldchar != 'n':
+                indent += 1
+                newline.append("\n")
+                newline.append("\t" * indent)
+                is_dict = True
+
+            if char == "}":
+                indent -= 1
+                newline.append("\n")
+                newline.append("\t" * indent)
+                is_function = True if is_dict else False
+                is_dict = False
+
+        formatted.append("\t" * indent + "".join(newline))
+
+    return "".join(formatted)
